@@ -111,6 +111,36 @@
     margin-top: 26px;
     border-top: 1px solid var(--line);
   }
+  .sort-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 22px;
+  }
+  .sort-label {
+    color: var(--text-dimmer);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .sort-toggle {
+    display: inline-flex;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .sort-btn {
+    background: var(--bg-elev);
+    color: var(--text-dim);
+    border: none;
+    border-radius: 0;
+    padding: 8px 14px;
+    font-size: 12px;
+  }
+  .sort-btn.active {
+    background: var(--teal);
+    color: #06201D;
+  }
   .row {
     display: grid;
     grid-template-columns: 90px 1fr auto 50px 20px;
@@ -205,6 +235,14 @@
     <button class="btn-add" id="saveKeyBtn">Save key</button>
   </div>
 
+  <div class="sort-row">
+    <span class="sort-label">Sort by</span>
+    <div class="sort-toggle">
+      <button class="sort-btn" id="sortSoonestBtn">Soonest date</button>
+      <button class="sort-btn" id="sortAlphaBtn">Alphabetical</button>
+    </div>
+  </div>
+
   <div id="board" class="board"></div>
 
   <button class="btn-refresh" id="refreshBtn">Refresh earnings dates</button>
@@ -222,6 +260,7 @@ let watchlist = [];
 let earningsData = {}; // { SYMBOL: { date: 'YYYY-MM-DD'|null, name: string|null } }
 let lastUpdated = null;
 let fmpApiKey = '';
+let sortMode = 'soonest'; // 'soonest' | 'alpha'
 
 const boardEl = document.getElementById('board');
 const inputEl = document.getElementById('symbolInput');
@@ -232,6 +271,8 @@ const refreshBtn = document.getElementById('refreshBtn');
 const lastUpdatedEl = document.getElementById('lastUpdated');
 const countEl = document.getElementById('count');
 const errorEl = document.getElementById('errorMsg');
+const sortSoonestBtn = document.getElementById('sortSoonestBtn');
+const sortAlphaBtn = document.getElementById('sortAlphaBtn');
 
 function daysUntil(dateStr) {
   if (!dateStr) return null;
@@ -256,7 +297,11 @@ function render() {
     return;
   }
 
+  sortSoonestBtn.classList.toggle('active', sortMode === 'soonest');
+  sortAlphaBtn.classList.toggle('active', sortMode === 'alpha');
+
   const sorted = [...watchlist].sort((a, b) => {
+    if (sortMode === 'alpha') return a.localeCompare(b);
     const da = daysUntil(earningsData[a]?.date);
     const db = daysUntil(earningsData[b]?.date);
     if (da === null && db === null) return a.localeCompare(b);
@@ -298,6 +343,7 @@ function loadStorage() {
       watchlist = parsed.watchlist || [];
       earningsData = parsed.data || {};
       lastUpdated = parsed.updatedAt || null;
+      sortMode = parsed.sortMode === 'alpha' ? 'alpha' : 'soonest';
     }
   } catch (e) {
     console.error('load failed', e);
@@ -313,7 +359,7 @@ function loadStorage() {
 
 function saveState() {
   try {
-    const payload = JSON.stringify({ watchlist, data: earningsData, updatedAt: lastUpdated });
+    const payload = JSON.stringify({ watchlist, data: earningsData, updatedAt: lastUpdated, sortMode });
     localStorage.setItem(STATE_KEY, payload);
     errorEl.textContent = '';
     return true;
@@ -435,6 +481,8 @@ inputEl.addEventListener('keydown', e => { if (e.key === 'Enter') addSymbol(); }
 saveKeyBtn.addEventListener('click', saveApiKey);
 apiKeyInput.addEventListener('keydown', e => { if (e.key === 'Enter') saveApiKey(); });
 refreshBtn.addEventListener('click', fetchEarningsDates);
+sortSoonestBtn.addEventListener('click', () => { sortMode = 'soonest'; saveState(); render(); });
+sortAlphaBtn.addEventListener('click', () => { sortMode = 'alpha'; saveState(); render(); });
 
 boardEl.addEventListener('click', e => {});
 
