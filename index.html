@@ -143,17 +143,56 @@
   }
   .row {
     display: grid;
-    grid-template-columns: 90px 1fr auto 50px 20px;
+    grid-template-columns: 90px 1fr auto 50px 22px 20px;
     align-items: center;
-    gap: 14px;
+    gap: 12px;
     padding: 16px 4px;
     border-bottom: 1px solid var(--line);
     animation: rise 0.35s ease both;
+  }
+  .row.editing {
+    grid-template-columns: 90px 1fr auto auto;
   }
   @keyframes rise {
     from { opacity: 0; transform: translateY(6px); }
     to { opacity: 1; transform: translateY(0); }
   }
+  .manual-tag {
+    color: var(--amber);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin-left: 6px;
+  }
+  .edit-btn {
+    background: none;
+    border: none;
+    color: var(--text-dimmer);
+    font-size: 14px;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+  }
+  .edit-btn:hover { color: var(--teal); }
+  .date-edit-input {
+    background: var(--bg);
+    border: 1px solid var(--teal);
+    color: var(--text);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    padding: 6px 8px;
+    border-radius: 4px;
+  }
+  .edit-actions {
+    display: flex;
+    gap: 8px;
+  }
+  .edit-actions button {
+    padding: 6px 10px;
+    font-size: 11px;
+  }
+  .btn-save-date { background: var(--teal); color: #06201D; }
+  .btn-cancel-date { background: var(--bg-elev-2); color: var(--text-dim); border: 1px solid var(--line); }
   .ticker {
     font-family: 'Space Grotesk', sans-serif;
     font-weight: 700;
@@ -261,6 +300,7 @@ let earningsData = {}; // { SYMBOL: { date: 'YYYY-MM-DD'|null, name: string|null
 let lastUpdated = null;
 let fmpApiKey = '';
 let sortMode = 'soonest'; // 'soonest' | 'alpha'
+let editingSymbol = null;
 
 const boardEl = document.getElementById('board');
 const inputEl = document.getElementById('symbolInput');
@@ -312,6 +352,20 @@ function render() {
 
   boardEl.innerHTML = sorted.map(sym => {
     const info = earningsData[sym] || {};
+
+    if (sym === editingSymbol) {
+      return `
+        <div class="row editing">
+          <div class="ticker">${sym}</div>
+          <input type="date" class="date-edit-input" id="dateEditInput" value="${info.date || ''}">
+          <div class="edit-actions">
+            <button class="btn-save-date save-date-btn" data-symbol="${sym}">Save</button>
+            <button class="btn-cancel-date cancel-date-btn">Cancel</button>
+          </div>
+          <div></div>
+        </div>`;
+    }
+
     const d = daysUntil(info.date);
     let daysLabel = '—';
     let daysClass = '';
@@ -322,14 +376,16 @@ function render() {
       else if (d <= 21) { daysLabel = d + 'D'; daysClass = 'near'; }
       else { daysLabel = d + 'D'; daysClass = 'far'; }
     }
-    const dateLabel = info.date ? formatDate(info.date) : (info.checked ? 'Unknown' : 'Not checked yet');
+    const dateLabel = info.date ? formatDate(info.date) : (info.checked ? 'Not on free-tier calendar' : 'Not checked yet');
     const dateClass = info.date ? '' : 'unknown';
+    const manualTag = info.manual ? '<span class="manual-tag">manual</span>' : '';
     return `
       <div class="row">
         <div class="ticker">${sym}</div>
         <div class="name">${info.name || ''}</div>
-        <div class="date ${dateClass}">${dateLabel}</div>
+        <div class="date ${dateClass}">${dateLabel}${manualTag}</div>
         <div class="days ${daysClass}">${daysLabel}</div>
+        <button class="edit-btn edit-date-btn" data-symbol="${sym}" title="Set date manually">✎</button>
         <button class="remove remove-btn" data-symbol="${sym}" title="Remove ${sym}">×</button>
       </div>`;
   }).join('');
@@ -403,6 +459,32 @@ function addSymbol() {
   }
 }
 
+function startEditDate(sym) {
+  editingSymbol = sym;
+  render();
+  const input = document.getElementById('dateEditInput');
+  if (input) input.focus();
+}
+
+function cancelEditDate() {
+  editingSymbol = null;
+  render();
+}
+
+function saveManualDate(sym) {
+  const input = document.getElementById('dateEditInput');
+  const val = input ? input.value : '';
+  if (val) {
+    earningsData[sym] = { ...(earningsData[sym] || {}), date: val, manual: true, checked: true };
+  } else {
+    // cleared the field: drop the manual override, revert to "not checked"
+    earningsData[sym] = { ...(earningsData[sym] || {}), date: null, manual: false };
+  }
+  editingSymbol = null;
+  saveState();
+  render();
+}
+
 function removeSymbol(sym) {
   watchlist = watchlist.filter(s => s !== sym);
   delete earningsData[sym];
@@ -457,11 +539,13 @@ async function fetchEarningsDates() {
     }
 
     watchlist.forEach(sym => {
-      earningsData[sym] = {
-        date: found[sym] || null,
-        name: earningsData[sym]?.name || null,
-        checked: true
-      };
+      if (found[sym]) {
+        earningsData[sym] = { date: found[sym], name: earningsData[sym]?.name || null, checked: true, manual: false };
+      } else if (earningsData[sym]?.manual) {
+        // keep the manually-entered date — the API just doesn't cover this symbol
+      } else {
+        earningsData[sym] = { date: null, name: earningsData[sym]?.name || null, checked: true, manual: false };
+      }
     });
 
     lastUpdated = new Date().toISOString();
@@ -486,10 +570,16 @@ sortAlphaBtn.addEventListener('click', () => { sortMode = 'alpha'; saveState(); 
 
 boardEl.addEventListener('click', e => {});
 
-// Use event delegation for remove buttons added dynamically
+// Use event delegation for remove/edit/save/cancel buttons added dynamically
 document.addEventListener('click', e => {
   if (e.target.classList.contains('remove-btn')) {
     removeSymbol(e.target.dataset.symbol);
+  } else if (e.target.classList.contains('edit-date-btn')) {
+    startEditDate(e.target.dataset.symbol);
+  } else if (e.target.classList.contains('save-date-btn')) {
+    saveManualDate(e.target.dataset.symbol);
+  } else if (e.target.classList.contains('cancel-date-btn')) {
+    cancelEditDate();
   }
 });
 
